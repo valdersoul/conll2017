@@ -18,8 +18,14 @@ class Module(nn.Module):
 
         self.encoder = Encoder(self._opts)
         self.decoder = AttenDecoder(self._opts)
-    
-    def forward
+
+    def forward(self, input, pos, label):
+        input = self.char_emb(input)
+        pos = self.pos_emb(pos)
+
+        hidden = self.encoder.init_hidden()
+        encoder_output, encoder_state = self.encoder(input, pos, hidden)
+        return encoder_output, encoder_state
 
 class Encoder(nn.Module):
     """
@@ -43,11 +49,6 @@ class Encoder(nn.Module):
         Forward pass
         """
 
-        input = self.char_emb(input)
-        pos = self.pos_emb(pos)
-
-        print pos.size()
-        print pos.view(self._opts.batch_size, -1).size()
         f1 = F.tanh(self.fc_pos_1(pos.view(self._opts.batch_size, -1)))
         f2 = F.tanh(self.fc_pos_2(f1))
 

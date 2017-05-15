@@ -58,11 +58,10 @@ train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_
 
 input, target, pos = train_batcher.next()
 
-model = Encoder(opts)
-hidden = model.init_hidden()
+model = Module(opts)
 print model
 model.cuda()
-output, hidden = model(input.cuda(), pos.cuda(), hidden)
+output, hidden = model(input.cuda(), pos.cuda(), target.cuda())
 
 print hidden[0].size()
 print output.size()
