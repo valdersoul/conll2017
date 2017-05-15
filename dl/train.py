@@ -5,6 +5,7 @@ from model import *
 from data import Loader
 from batcher import Batcher
 import optparse
+import torch
 
 # Read parameters from command line
 optparser = optparse.OptionParser()
@@ -53,6 +54,9 @@ opts.max_pos_len = train_loader._pos_max_len
 opts.use_cuda = opts.use_cuda == 1
 opts.run_type = opts.run_type == 1
 
+if not torch.cuda.is_available():
+    opts.use_cuda = False
+
 train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
 
 
@@ -60,8 +64,11 @@ input, target, pos = train_batcher.next()
 
 model = Module(opts)
 print model
-model.cuda()
-output, hidden = model(input.cuda(), pos.cuda(), target.cuda())
+if opts.use_cuda:
+    model.cuda()
+    output, hidden = model(input.cuda(), pos.cuda(), target.cuda())
+else:
+    output, hidden = model(input, pos, target)
 
 print hidden[0].size()
 print output.size()
