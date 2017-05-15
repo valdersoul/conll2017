@@ -18,7 +18,8 @@ class Module(nn.Module):
 
         self.encoder = Encoder(self._opts)
         self.decoder = AttenDecoder(self._opts)
-
+    
+    def forward
 
 class Encoder(nn.Module):
     """
