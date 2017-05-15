@@ -12,10 +12,9 @@ MAX_COUNT = 10000000
 
 class Loader(object):
     '''A data loader for tringing and testing'''
-    def __init__(self, file_path, batch_size, opts):
+    def __init__(self, file_path, batch_size):
         self._file_path = file_path
         self._batch_size = batch_size
-        self._opts = opts      
 
         lines = [line.strip() for line in codecs.open(self._file_path, 'r', encoding = 'utf-8')]
         self._lemma = []
@@ -34,8 +33,6 @@ class Loader(object):
                 self._char_max_len = len(t1)
             if len(t3.split(';')) > self._pos_max_len:
                 self._pos_max_len = len(t3.split(';'))
-        print self._char_max_len
-        print self._pos_max_len
 
         self._raw_data = lines
         vocab = self._lemma + self._form
@@ -53,6 +50,7 @@ class Loader(object):
         self._pos_to_id, self._id_to_pos = self.create_mapping(pos_dico)
 
         self._data = self._prepare_data()
+
 
     def _get_data(self):
         return self._data
@@ -72,7 +70,7 @@ class Loader(object):
                 }
             )
         return data
-    
+
     def _create_dico(self, item_list):
         """
         Create a dictionary of items from a list of list of items.
@@ -86,7 +84,7 @@ class Loader(object):
                 dico[item] += 1
         return dico
 
-    def create_mapping(self,dico):
+    def create_mapping(self, dico):
         """
         Create a mapping (item to ID / ID to item) from a dictionary.
         Items are ordered by decreasing frequency.
@@ -95,9 +93,11 @@ class Loader(object):
         id_to_item = {i: v[0] for i, v in enumerate(sorted_items)}
         item_to_id = {v: k for k, v in id_to_item.items()}
         return item_to_id, id_to_item
-    
 
 def main():
+    """
+    test main function
+    """
     test = Loader('../all/task1/albanian-train-high', 16, None)
 
 
