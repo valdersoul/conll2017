@@ -1,5 +1,6 @@
 from __future__ import division
 from collections import OrderedDict
+from tqdm import trange
 
 from model import *
 from data import Loader
@@ -73,32 +74,34 @@ if opts.use_cuda:
 else:
     print "Find GPU unable, using CPU to compute..."
 
-opt = optim.Adadelta(model.parameters(), lr = 0.1)
+opt = optim.Adadelta(model.parameters(), lr=0.1)
+epoch = 10
 
-for step in xrange(int(100 * 10000 / 16)):
-    if step % (10000 / 16) == 0 and step != 0:
-        torch.save(model, '../model/model%d.pkl' %(step) )
-    train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
-    input, target, pos = train_batcher.next()
-    input_tensor = Variable(torch.LongTensor(input))
-    target_tensor = Variable(torch.LongTensor(target))
-    pos_tensor = Variable(torch.LongTensor(pos))
+for step in xrange(epoch):
+    if step != 0:
+        torch.save(model, '../model/model%d.pkl'%(step))
 
-    opt.zero_grad()
+    t = trange(int(10000 / 16), desc='ML')
+    for i in t:
+        train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
+        input, target, pos = train_batcher.next()
+        input_tensor = Variable(torch.LongTensor(input))
+        target_tensor = Variable(torch.LongTensor(target))
+        pos_tensor = Variable(torch.LongTensor(pos))
 
-    if opts.use_cuda:
-        input_tensor = input_tensor.cuda()
-        target_tensor = target_tensor.cuda()
-        pos_tensor = pos_tensor.cuda()
+        opt.zero_grad()
+        if opts.use_cuda:
+            input_tensor = input_tensor.cuda()
+            target_tensor = target_tensor.cuda()
+            pos_tensor = pos_tensor.cuda()
 
-    loss = 0
-    outputs = model(input_tensor, pos_tensor, target_tensor)
-    for i in xrange(len(target[0])):
-        loss += criterion(outputs[i], target_tensor[:,i])
-
-    loss.backward()
-    opt.step()
-    if step % 100 == 0 and step != 0:
-        print loss.cpu().data[0] / opts.batch_size
+        loss = 0
+        outputs = model(input_tensor, pos_tensor, target_tensor)
+        for i in xrange(len(target[0])):
+            loss += criterion(outputs[i], target_tensor[:, i])
+        loss.backward()
+        opt.step()
+        
+        t.set_description('ML (loss=%g)' % (loss.cpu().data[0] / opts.batch_size))
 
 

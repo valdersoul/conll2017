@@ -114,11 +114,6 @@ class AttenDecoder(nn.Module):
         hs = encoder_state[0]
         cs = encoder_state[1]
 
-        # v = torch.randn([1,self._atten_size])
-        # v = v.repeat(self._opts.batch_size, 1, 1)
-        # v = Variable(v)
-        # if self._opts.use_cuda:
-        #     v = v.cuda()
         outputs = []
         # target size is batch_size x seq_len x emb_size
         for i in xrange(target.size()[1]):
