@@ -38,9 +38,9 @@ class Batcher(object):
         target = self.padding(target)
         pos = self.padding(pos, self._max_pos_len)
         self._curser += self._batch_size
-
-        return Variable(torch.LongTensor(input)), Variable(torch.LongTensor(target)), Variable(torch.LongTensor(pos))
-
+        
+        return input, target, pos
+        
     def padding(self, input, maxlength=0):
         """
         padding the sequence to the longest seq

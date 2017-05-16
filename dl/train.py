@@ -6,6 +6,7 @@ from data import Loader
 from batcher import Batcher
 import optparse
 import torch
+from torch import optim
 import time
 
 # Read parameters from command line
@@ -45,7 +46,6 @@ optparser.add_option(
 )
 
 
-
 opts = optparser.parse_args()[0]
 
 train_loader = Loader(opts.train, opts.batch_size)
@@ -58,24 +58,45 @@ opts.run_type = opts.run_type == 1
 if not torch.cuda.is_available():
     opts.use_cuda = False
 
-train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
+# weights for paddings, set to 0
+loss_weights = torch.ones(opts.vocab_len)
+loss_weights[0] = 0
+criterion = nn.NLLLoss(loss_weights)
 
-
-
-start = time.time()
-input, target, pos = train_batcher.next()
 model = Module(opts)
 print model
+
 if opts.use_cuda:
     print "Find GPU enable, using GPU to compute..."
     model.cuda()
-    output, hidden = model(input.cuda(), pos.cuda(), target.cuda())
+    criterion.cuda()
 else:
     print "Find GPU unable, using CPU to compute..."
-    output, hidden = model(input, pos, target)
-end = time.time()
 
-print end - start
+opt = optim.Adadelta(model.parameters(), lr = 0.1)
 
+for step in xrange(100 * 10000):
+    train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
+    input, target, pos = train_batcher.next()
+    input_tensor = Variable(torch.LongTensor(input))
+    target_tensor = Variable(torch.LongTensor(target))
+    pos_tensor = Variable(torch.LongTensor(pos))
+
+    opt.zero_grad()
+
+    if opts.use_cuda:
+        input_tensor = input_tensor.cuda()
+        target_tensor = target_tensor.cuda()
+        pos_tensor = pos_tensor.cuda()
+
+    loss = 0
+    outputs = model(input_tensor, pos_tensor, target_tensor)
+    for i in xrange(len(target[0])):
+        loss += criterion(outputs[i], target_tensor[:,i])
+
+    loss.backward()
+    opt.step()
+    if step % 100 == 0 and step != 0:
+        print loss.cpu().data[0] / opts.batch_size
 
 
