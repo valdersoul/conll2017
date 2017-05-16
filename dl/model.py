@@ -19,7 +19,7 @@ class Module(nn.Module):
         self.encoder = Encoder(self._opts)
         self.decoder = AttenDecoder(self._opts)
 
-        self.dropout = nn.Dropout(p=0.5)
+        self.dropout = nn.Dropout(p=self._opts.dropout)
 
     def forward(self, input, pos, label):
 

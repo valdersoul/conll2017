@@ -14,13 +14,14 @@ class Batcher(object):
         self._batch_size = batch_size
         self._data = data
         self._eval = eval
+        self._data_len = len(self._data)
         if self._eval:
-            self._index = np.arange(len(self._data))
+            self._index = np.arange(self._data_len)
         else:
-            self._index = np.random.permutation(len(self._data))
+            self._index = np.random.permutation(self._data_len)
         self._max_pos_len = max_pos_len
         self._curser = 0
-
+    
     def next(self):
         """
         return next batch data
@@ -29,11 +30,41 @@ class Batcher(object):
         pos = []
         target = []
         target_length = []
-
-        if self._curser == len(self._data):
+        data_moved = self._batch_size
+        if self._curser == self._data_len:
             if not self._eval:
-                self._index = np.random.permutation(len(self._data))
+                self._index = np.random.permutation(self._data_len)
             self._curser = 0
+        elif self._curser + self._batch_size > self._data_len:
+            diff = self._data_len - self._curser
+            for i in self._index[self._curser : self._curser + diff]:
+                target_length.append(len(self._data[i]['label']))
+                input.append(self._data[i]['input'])
+                pos.append(self._data[i]['pos'])
+                target.append(self._data[i]['label'])
+            self._curser = 0
+            if not self._eval:
+                self._index = np.random.permutation(self._data_len)
+                for i in self._index[self._curser : self._curser + self._batch_size - diff]:
+                    target_length.append(len(self._data[i]['label']))
+                    input.append(self._data[i]['input'])
+                    pos.append(self._data[i]['pos'])
+                    target.append(self._data[i]['label'])
+                data_moved = self._batch_size - diff
+            else:
+                for i in xrange(self._batch_size - diff):
+                    target_length.append(0)
+                    input.append([0])
+                    pos.append([0])
+                    target.append([0])
+                self._curser = 0
+                data_moved = 0
+            input = self.padding(input)
+            target = self.padding(target)
+            pos = self.padding(pos, self._max_pos_len)
+            self._curser += data_moved
+
+            return input, target, pos, target_length
 
         for i in self._index[self._curser : self._curser + self._batch_size]:
             target_length.append(len(self._data[i]['label']))
@@ -44,10 +75,10 @@ class Batcher(object):
         input = self.padding(input)
         target = self.padding(target)
         pos = self.padding(pos, self._max_pos_len)
-        self._curser += self._batch_size
-        
+        self._curser += data_moved
+
         return input, target, pos, target_length
-        
+
     def padding(self, input, maxlength=0):
         """
         padding the sequence to the longest seq

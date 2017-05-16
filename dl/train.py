@@ -6,7 +6,7 @@ from model import *
 from data import Loader
 from batcher import Batcher
 
-
+import math
 import optparse
 import torch
 from torch import optim
@@ -19,10 +19,6 @@ optparser = optparse.OptionParser()
 optparser.add_option(
     "-T", "--train", default="",
     help="Train set location"
-)
-optparser.add_option(
-    "-d", "--dev", default="",
-    help="Dev set location"
 )
 optparser.add_option(
     "-t", "--test", default="",
@@ -51,6 +47,10 @@ optparser.add_option(
 optparser.add_option(
     "-s", "--seed", default="26",
     type='int', help="random seed for CPU and GPU"
+)
+optparser.add_option(
+    "-d", "--dropout", default="0.5",
+    type='float', help="dropout ratio"
 )
 
 
@@ -94,7 +94,7 @@ for step in xrange(epoch):
     if step != 0:
         torch.save(model, '../model/model%d.pkl'%(step))
 
-    t = trange(int(opts.data_size / opts.batch_size), desc='ML')
+    t = trange(int(math.ceil(opts.data_size / opts.batch_size)), desc='ML')
     for iter in t:
         input, target, pos, target_length = train_batcher.next()
         input_tensor = Variable(torch.LongTensor(input))
