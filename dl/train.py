@@ -5,6 +5,8 @@ from tqdm import trange
 from model import *
 from data import Loader
 from batcher import Batcher
+
+
 import optparse
 import torch
 from torch import optim
@@ -55,6 +57,7 @@ optparser.add_option(
 opts = optparser.parse_args()[0]
 
 train_loader = Loader(opts.train, opts.batch_size)
+print train_loader._id_to_char
 opts.vocab_len = len(train_loader._char_to_id)
 opts.pos_len = len(train_loader._pos_to_id)
 opts.max_pos_len = train_loader._pos_max_len
@@ -69,9 +72,7 @@ torch.manual_seed(opts.seed)
 np.random.seed(opts.seed)
 
 # weights for paddings, set to 0
-loss_weights = torch.ones(opts.vocab_len)
-loss_weights[0] = 0
-criterion = nn.NLLLoss(loss_weights)
+criterion = nn.NLLLoss()
 
 model = Module(opts)
 print model
@@ -94,25 +95,34 @@ for step in xrange(epoch):
         torch.save(model, '../model/model%d.pkl'%(step))
 
     t = trange(int(opts.data_size / opts.batch_size), desc='ML')
-    for i in t:
-        input, target, pos = train_batcher.next()
+    for iter in t:
+        input, target, pos, target_length = train_batcher.next()
         input_tensor = Variable(torch.LongTensor(input))
         target_tensor = Variable(torch.LongTensor(target))
         pos_tensor = Variable(torch.LongTensor(pos))
+
+        loss = 0
+        accuracy = 0
+        predicts = Variable(torch.ones(opts.batch_size, len(target[0])))
 
         opt.zero_grad()
         if opts.use_cuda:
             input_tensor = input_tensor.cuda()
             target_tensor = target_tensor.cuda()
             pos_tensor = pos_tensor.cuda()
+            predicts = predicts.cuda()
 
-        loss = 0
         outputs = model(input_tensor, pos_tensor, target_tensor)
+
         for i in xrange(len(target[0])):
             loss += criterion(outputs[i], target_tensor[:, i])
+            _, pred = torch.max(outputs[i], 1)
+            predicts[:,i] = pred
+
         loss.backward()
         opt.step()
 
-        t.set_description('ML (loss=%g)' % (loss.cpu().data[0] / opts.batch_size))
+        accuracy = torch.sum(torch.eq(predicts.long() ,target_tensor).long())
+        t.set_description('ML (loss=%g, accuracy=%g)' % (loss.cpu().data[0] / opts.batch_size, accuracy.cpu().data[0] / (opts.batch_size * len(target[0]))))
 
 

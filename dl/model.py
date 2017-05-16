@@ -43,7 +43,6 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self._opts = opts
 
-        
         self.encoder = nn.LSTM(self._opts.emb_size, self._opts.hidden_size, batch_first = True, bidirectional = True)
 
         self.fc_h = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
@@ -61,7 +60,7 @@ class Encoder(nn.Module):
         f2 = F.tanh(self.fc_pos_2(f1))
 
         pos_c_state = f2.unsqueeze(0)
-        add_pos_hidden = (hidden[0], torch.cat((pos_c_state, pos_c_state), 0) )
+        add_pos_hidden = (hidden[0], torch.cat((pos_c_state, pos_c_state), 0))
 
         output, state = self.encoder(input, add_pos_hidden)
         he = state[0]
@@ -125,10 +124,10 @@ class AttenDecoder(nn.Module):
             combined_features = (encoder_features + decoder_features).view(self._opts.batch_size, self._atten_size, -1)
             e = self.we(F.tanh(combined_features)).squeeze()
 
-            a = F.softmax(e).unsqueeze(1)
+            softmax_score = F.softmax(e).unsqueeze(1)
 
-            h_star = torch.bmm(a, encoder_output).squeeze()
-            hs, cs = self.decoder(target[:,i], (hs, cs))
+            h_star = torch.bmm(softmax_score, encoder_output).squeeze()
+            hs, cs = self.decoder(target[:, i], (hs, cs))
 
             feature = torch.cat((h_star, hs), 1)
             output = F.log_softmax(self.V_prime(feature))

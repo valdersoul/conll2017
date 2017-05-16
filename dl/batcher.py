@@ -28,6 +28,7 @@ class Batcher(object):
         input = []
         pos = []
         target = []
+        target_length = []
 
         if self._curser == len(self._data):
             if not self._eval:
@@ -35,6 +36,7 @@ class Batcher(object):
             self._curser = 0
 
         for i in self._index[self._curser : self._curser + self._batch_size]:
+            target_length.append(len(self._data[i]['label']))
             input.append(self._data[i]['input'])
             pos.append(self._data[i]['pos'])
             target.append(self._data[i]['label'])
@@ -44,7 +46,7 @@ class Batcher(object):
         pos = self.padding(pos, self._max_pos_len)
         self._curser += self._batch_size
         
-        return input, target, pos
+        return input, target, pos, target_length
         
     def padding(self, input, maxlength=0):
         """
