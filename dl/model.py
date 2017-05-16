@@ -20,12 +20,21 @@ class Module(nn.Module):
         self.decoder = AttenDecoder(self._opts)
 
     def forward(self, input, pos, label):
+
         input = self.char_emb(input)
         pos = self.pos_emb(pos)
+        label = self.char_emb(label)
 
         hidden = self.encoder.init_hidden()
         encoder_output, encoder_state = self.encoder(input, pos, hidden)
+        encoder_output.contiguous()
+
+        features = self.decoder(encoder_state, encoder_output, label)
+        
+
         return encoder_output, encoder_state
+
+
 
 class Encoder(nn.Module):
     """
@@ -52,19 +61,17 @@ class Encoder(nn.Module):
         f1 = F.tanh(self.fc_pos_1(pos.view(self._opts.batch_size, -1)))
         f2 = F.tanh(self.fc_pos_2(f1))
 
-        pos_c_state = f2.view(1, self._opts.batch_size, -1)
+        pos_c_state = f2.unsqueeze(0)
         add_pos_hidden = (hidden[0], torch.cat((pos_c_state, pos_c_state), 0) )
 
         output, state = self.encoder(input, add_pos_hidden)
         he = state[0]
         ce = state[1]
 
-        print he.size()
-
         he_reduced = self.fc_h(he.view(self._opts.batch_size, -1))
-        hc_reduced = self.fc_c(ce.view(self._opts.batch_size, -1))
+        ce_reduced = self.fc_c(ce.view(self._opts.batch_size, -1))
 
-        return output, (he_reduced.view(1,self._opts.batch_size,-1), hc_reduced.view(1,self._opts.batch_size,-1))
+        return output, (he_reduced, ce_reduced)
 
     def init_hidden(self):
         """
@@ -85,21 +92,44 @@ class AttenDecoder(nn.Module):
     def __init__(self, opts):
         super(AttenDecoder, self).__init__()
         self._opts = opts
-
-        self.char_emb = nn.Embedding(self._opts.vocab_len, self._opts.emb_size, padding_idx=0)
         self.decoder = nn.LSTMCell(self._opts.emb_size, self._opts.hidden_size)
 
         # w_h for hidden_states from encoder
-        self.wh = nn.Conv2d(2 * self._opts.hidden_size, 1, self._opts.hidden_size, bias=False)
+        self.wh = nn.Conv2d(2 * self._opts.hidden_size, self._opts.hidden_size, 1, bias=False)
         # w_s for state output by the decoder
-        self.ws = nn.Linear(self._opts.hidden_size, self._opts.hidden_size)
+        self.ws = nn.Linear(self._opts.hidden_size * 2, self._opts.hidden_size)
 
         self.V = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
         self.V_prime = nn.Linear(self._opts.hidden_size, self._opts.vocab_len)
 
-    def forward(self, input, encoder_cell, encoder_states, target):
+    def forward(self, encoder_state, encoder_output, target):
+        encoder_states = encoder_output.view(self._opts.batch_size, 2 * self._opts.hidden_size, 1, -1)
+        # w_h * h_i ---> batch_size x seq_len x hidden_size
+        encoder_features = self.wh(encoder_states).view(self._opts.batch_size, -1, self._opts.hidden_size)
 
-        input = self.char_emb(input)
+        hs = encoder_state[0]
+        cs = encoder_state[1]
 
+        v = torch.randn([1,self._opts.hidden_size])
+        v = v.repeat(self._opts.batch_size, 1, 1)
+        v = Variable(v)
+        if self._opts.use_cuda:
+            v = v.cuda()
 
-        return
+        if self.training:
+            # target size is batch_size x seq_len x emb_size
+            for i in xrange(target.size()[1]):
+                #compute w_s * s_i ------> batch_size * 1 * hidden_size
+                decoder_features = self.ws(torch.cat((hs, cs), 1)).unsqueeze(1)
+                decoder_features = decoder_features.expand_as(encoder_features)
+
+                #compute v * (w_h * h_i + w_s * s_i)
+                combined_features = (encoder_features + decoder_features).view(self._opts.batch_size, self._opts.hidden_size, -1)
+                e = torch.bmm(v, F.tanh(combined_features)).squeeze()
+                a = F.softmax(e)
+                print a.size()
+                
+
+        
+
+        return encoder_features

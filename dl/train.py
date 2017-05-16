@@ -6,6 +6,7 @@ from data import Loader
 from batcher import Batcher
 import optparse
 import torch
+import time
 
 # Read parameters from command line
 optparser = optparse.OptionParser()
@@ -23,7 +24,7 @@ optparser.add_option(
     help="Test set location"
 )
 optparser.add_option(
-    "-c", "--emb_size", default="25",
+    "-c", "--emb_size", default="15",
     type='int', help="Char embedding dimension"
 )
 optparser.add_option(
@@ -60,18 +61,21 @@ if not torch.cuda.is_available():
 train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
 
 
-input, target, pos = train_batcher.next()
 
+start = time.time()
+input, target, pos = train_batcher.next()
 model = Module(opts)
 print model
 if opts.use_cuda:
+    print "Find GPU enable, using GPU to compute..."
     model.cuda()
     output, hidden = model(input.cuda(), pos.cuda(), target.cuda())
 else:
+    print "Find GPU unable, using CPU to compute..."
     output, hidden = model(input, pos, target)
+end = time.time()
 
-print hidden[0].size()
-print output.size()
+print end - start
 
 
 
