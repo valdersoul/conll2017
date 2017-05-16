@@ -57,7 +57,6 @@ optparser.add_option(
 opts = optparser.parse_args()[0]
 
 train_loader = Loader(opts.train, opts.batch_size)
-print train_loader._id_to_char
 opts.vocab_len = len(train_loader._char_to_id)
 opts.pos_len = len(train_loader._pos_to_id)
 opts.max_pos_len = train_loader._pos_max_len
@@ -119,8 +118,6 @@ for step in xrange(epoch):
             _, pred = torch.max(outputs[i], 1)
             predicts[:,i] = pred
         
-        if iter == 600:
-            print predicts
         loss.backward()
         opt.step()
 
