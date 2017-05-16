@@ -75,7 +75,9 @@ else:
 
 opt = optim.Adadelta(model.parameters(), lr = 0.1)
 
-for step in xrange(100 * 10000):
+for step in xrange(int(100 * 10000 / 16)):
+    if step % (10000 / 16) == 0 and step != 0:
+        torch.save(model, '../model/model%d.pkl' %(step) )
     train_batcher = Batcher(opts.batch_size, train_loader._get_data(), opts.max_pos_len)
     input, target, pos = train_batcher.next()
     input_tensor = Variable(torch.LongTensor(input))
