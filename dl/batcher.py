@@ -10,10 +10,14 @@ class Batcher(object):
     """
     batch loader for the data
     """
-    def __init__(self, batch_size, data, max_pos_len):
+    def __init__(self, batch_size, data, max_pos_len, eval):
         self._batch_size = batch_size
         self._data = data
-        self._index = np.random.permutation(len(self._data))
+        self._eval = eval
+        if self._eval:
+            self._index = np.arange(len(self._data))
+        else:
+            self._index = np.random.permutation(len(self._data))
         self._max_pos_len = max_pos_len
         self._curser = 0
 
@@ -26,7 +30,8 @@ class Batcher(object):
         target = []
 
         if self._curser == len(self._data):
-            self._index = np.random.permutation(len(self._data))
+            if not self._eval:
+                self._index = np.random.permutation(len(self._data))
             self._curser = 0
 
         for i in self._index[self._curser : self._curser + self._batch_size]:

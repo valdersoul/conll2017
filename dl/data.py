@@ -52,8 +52,11 @@ class Loader(object):
         self._data = self._prepare_data()
 
 
-    def _get_data(self):
+    def get_data(self):
         return self._data
+
+    def get_data_size(self):
+        return len(self._data)
 
     def _prepare_data(self):
         data = []
