@@ -19,11 +19,13 @@ class Module(nn.Module):
         self.encoder = Encoder(self._opts)
         self.decoder = AttenDecoder(self._opts)
 
+        self.dropout = nn.Dropout(p=0.5)
+
     def forward(self, input, pos, label):
 
-        input = self.char_emb(input)
-        pos = self.pos_emb(pos)
-        label = self.char_emb(label)
+        input = self.dropout(self.char_emb(input))
+        pos = self.dropout(self.pos_emb(pos))
+        label = self.dropout(self.char_emb(label))
 
         hidden = self.encoder.init_hidden()
         encoder_output, encoder_state = self.encoder(input, pos, hidden)

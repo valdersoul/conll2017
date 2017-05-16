@@ -118,7 +118,9 @@ for step in xrange(epoch):
             loss += criterion(outputs[i], target_tensor[:, i])
             _, pred = torch.max(outputs[i], 1)
             predicts[:,i] = pred
-
+        
+        if iter == 600:
+            print predicts
         loss.backward()
         opt.step()
 
