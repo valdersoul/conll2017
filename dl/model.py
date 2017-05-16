@@ -100,6 +100,8 @@ class AttenDecoder(nn.Module):
         # w_s for state output by the decoder
         self.ws = nn.Linear(self._opts.hidden_size * 2, self._atten_size)
 
+        self.we = nn.Conv1d(self._atten_size, 1, 1, bias=False)
+
         self.V = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
         self.V_prime = nn.Linear(self._opts.hidden_size + self._atten_size, self._opts.vocab_len)
 
@@ -107,16 +109,16 @@ class AttenDecoder(nn.Module):
         encoder_outputs = encoder_output
         encoder_outputs = encoder_outputs.view(self._opts.batch_size, self._atten_size, 1, -1)
         # w_h * h_i ---> batch_size x seq_len x hidden_size
-        encoder_features = self.wh(encoder_outputs).view(self._opts.batch_size, -1,self._atten_size)
+        encoder_features = self.wh(encoder_outputs).view(self._opts.batch_size, -1, self._atten_size)
 
         hs = encoder_state[0]
         cs = encoder_state[1]
 
-        v = torch.randn([1,self._atten_size])
-        v = v.repeat(self._opts.batch_size, 1, 1)
-        v = Variable(v)
-        if self._opts.use_cuda:
-            v = v.cuda()
+        # v = torch.randn([1,self._atten_size])
+        # v = v.repeat(self._opts.batch_size, 1, 1)
+        # v = Variable(v)
+        # if self._opts.use_cuda:
+        #     v = v.cuda()
         outputs = []
         # target size is batch_size x seq_len x emb_size
         for i in xrange(target.size()[1]):
@@ -125,13 +127,14 @@ class AttenDecoder(nn.Module):
             decoder_features = decoder_features.expand_as(encoder_features)
 
             #compute v * (w_h * h_i + w_s * s_i)
-            combined_features = (encoder_features + decoder_features).view(self._opts.batch_size,2 * self._opts.hidden_size, -1)
-            e = torch.bmm(v, F.tanh(combined_features)).squeeze()
+            combined_features = (encoder_features + decoder_features).view(self._opts.batch_size, self._atten_size, -1)
+            e = self.we(F.tanh(combined_features)).squeeze()
+
             a = F.softmax(e).unsqueeze(1)
 
             h_star = torch.bmm(a, encoder_output).squeeze()
             hs, cs = self.decoder(target[:,i], (hs, cs))
-            
+
             feature = torch.cat((h_star, hs), 1)
             output = F.log_softmax(self.V_prime(feature))
             outputs.append(output)
