@@ -104,6 +104,7 @@ def start_train(model, criterion, opts, train_batcher):
                 loss += criterion(outputs[i], target_tensor[:, i + 1])
                 _, pred = torch.max(outputs[i], 1)
                 predicts[:,i] = pred
+
             loss /= (np.sum(target_length) - opts.batch_size)
             loss.backward()
             opt.step()
@@ -113,8 +114,11 @@ def start_train(model, criterion, opts, train_batcher):
             predicts_mask.masked_copy_(mask.data, predicts.data).long()
             predicts_mask = Variable(predicts_mask.long())
 
-            accuracy = torch.sum(predicts_mask == target_tensor)
-            t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss.cpu().data[0] / opts.batch_size, accuracy.cpu().data[0] / (opts.batch_size * len(target[0]))))
+            accuracy = torch.sum((predicts_mask[:,:-1] == target_tensor[:,1:]).long()) - torch.sum((target_tensor[:,1:] == 0).long())
+            if iter == 300:
+                print predicts_mask[:,:-1]
+                print target_tensor[:,1:]
+            t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
 
 def decode(model, opts, test_batcher):
     """

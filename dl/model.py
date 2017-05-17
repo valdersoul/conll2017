@@ -86,7 +86,7 @@ class Encoder(nn.Module):
 
         he_reduced = self.fc_h(he.view(batch_size, -1))
         ce_reduced = self.fc_c(ce.view(batch_size, -1))
-
+        
         return output, (he_reduced, ce_reduced)
 
     def init_hidden(self, batch_size):
