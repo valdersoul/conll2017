@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+import torch.nn.init as init
 
 import numpy as np
 
@@ -20,6 +21,9 @@ class Module(nn.Module):
         self.decoder = AttenDecoder(self._opts)
 
         self.dropout = nn.Dropout(p=self._opts.dropout)
+
+        init.uniform(self.char_emb.weight, -1 , 1)
+        init.uniform(self.pos_emb.weight, -1 , 1)
 
     def forward(self, input, pos, label):
         batch_size = pos.size(0)
@@ -68,6 +72,14 @@ class Encoder(nn.Module):
         self.fc_pos_1 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size, self._opts.max_pos_len * self._opts.emb_size / 2)
         self.fc_pos_2 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size / 2, self._opts.hidden_size)
 
+        self.pos_gate = nn.Linear(self._opts.hidden_size, 1)
+
+        init.uniform(self.fc_h.weight, -1 , 1)
+        init.uniform(self.fc_c.weight, -1 , 1)
+        init.uniform(self.fc_pos_1.weight, -1 , 1)
+        init.uniform(self.fc_pos_2.weight, -1 , 1)
+        init.uniform(self.pos_gate.weight, -1 , 1)
+
     def forward(self, input, pos, hidden):
         """
         Forward pass
@@ -77,16 +89,21 @@ class Encoder(nn.Module):
         f1 = F.tanh(self.fc_pos_1(pos.view(batch_size, -1)))
         f2 = F.tanh(self.fc_pos_2(f1))
 
-        pos_c_state = f2.unsqueeze(0)
-        add_pos_hidden = (hidden[0], torch.cat((pos_c_state, pos_c_state), 0))
+        pos_c_state = f2
+        pos_gate = F.sigmoid(self.pos_gate(pos_c_state))
 
-        output, state = self.encoder(input, add_pos_hidden)
+        output, state = self.encoder(input, hidden)
+
         he = state[0]
         ce = state[1]
 
         he_reduced = self.fc_h(he.view(batch_size, -1))
         ce_reduced = self.fc_c(ce.view(batch_size, -1))
         
+        pos_gate = pos_gate.repeat(1, self._opts.hidden_size)
+
+        ce_reduced = (1 - pos_gate) * ce_reduced + pos_gate * pos_c_state
+
         return output, (he_reduced, ce_reduced)
 
     def init_hidden(self, batch_size):
@@ -122,6 +139,13 @@ class AttenDecoder(nn.Module):
         self.V = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
         self.V_prime = nn.Linear(self._opts.hidden_size + self._atten_size, self._opts.vocab_len)
 
+        init.uniform(self.ws.weight, -1 , 1)
+        init.uniform(self.V.weight, -1 , 1)
+        init.uniform(self.V_prime.weight, -1 , 1)
+
+        init.kaiming_uniform(self.we.weight)
+        init.kaiming_uniform(self.wh.weight)
+
     def forward(self, encoder_state, encoder_output, target, initial_state = True):
         batch_size = target.size(0)
 
@@ -130,7 +154,7 @@ class AttenDecoder(nn.Module):
             encoder_outputs = encoder_outputs.view(batch_size, self._atten_size, 1, -1)
             # w_h * h_i ---> batch_size x seq_len x hidden_size
             self._encoder_features = self.wh(encoder_outputs).view(batch_size, -1, self._atten_size)
-
+            #self._encoder_features = encoder_output.view(batch_size, -1, self._atten_size)
         hs = encoder_state[0]
         cs = encoder_state[1]
 
@@ -148,7 +172,7 @@ class AttenDecoder(nn.Module):
             softmax_score = F.softmax(e).unsqueeze(1)
 
             h_star = torch.bmm(softmax_score, encoder_output).squeeze(1)
-            
+
             hs, cs = self.decoder(target[:, i], (hs, cs))
 
             feature = torch.cat((h_star, hs), 1)

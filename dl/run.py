@@ -116,6 +116,7 @@ def start_train(model, criterion, opts, train_batcher):
 
             accuracy = torch.sum((predicts_mask[:,:-1] == target_tensor[:,1:]).long()) - torch.sum((target_tensor[:,1:] == 0).long())
             if iter == 300:
+                print target
                 print predicts_mask[:,:-1]
                 print target_tensor[:,1:]
             t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
