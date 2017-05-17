@@ -12,9 +12,8 @@ MAX_COUNT = 10000000
 
 class Loader(object):
     '''A data loader for tringing and testing'''
-    def __init__(self, file_path, batch_size):
+    def __init__(self, file_path, c2i=[], i2c=[], p2i=[], i2p=[]):
         self._file_path = file_path
-        self._batch_size = batch_size
 
         lines = [line.strip() for line in codecs.open(self._file_path, 'r', encoding = 'utf-8')]
         self._lemma = []
@@ -35,25 +34,36 @@ class Loader(object):
                 self._pos_max_len = len(t3.split(';'))
 
         self._raw_data = lines
-        vocab = self._lemma + self._form
-        char_dico = self._create_dico(vocab)
-        pos_dico = self._create_dico(self._pos)
 
-        char_dico[UNKNOWN_CHARACTER] = MAX_COUNT - 1
-        char_dico[PADDING] = MAX_COUNT
-        char_dico[START_DECODING] = MAX_COUNT - 2
-        char_dico[END_DECODING] = MAX_COUNT - 3
+        if not c2i:
+            vocab = self._lemma + self._form
+            char_dico = self._create_dico(vocab)
+            pos_dico = self._create_dico(self._pos)
 
-        pos_dico[PADDING] = MAX_COUNT
+            char_dico[UNKNOWN_CHARACTER] = MAX_COUNT - 1
+            char_dico[PADDING] = MAX_COUNT
+            char_dico[START_DECODING] = MAX_COUNT - 2
+            char_dico[END_DECODING] = MAX_COUNT - 3
+            
+            pos_dico[UNKNOWN_CHARACTER] = MAX_COUNT - 1
+            pos_dico[PADDING] = MAX_COUNT
 
-        self._char_to_id, self._id_to_char = self.create_mapping(char_dico)
-        self._pos_to_id, self._id_to_pos = self.create_mapping(pos_dico)
+            self._char_to_id, self._id_to_char = self._create_mapping(char_dico)
+            self._pos_to_id, self._id_to_pos = self._create_mapping(pos_dico)
+        else:
+            self._char_to_id = c2i
+            self._id_to_char = i2c
+            self._pos_to_id = p2i
+            self._id_to_pos = i2p
 
         self._data = self._prepare_data()
 
 
     def get_data(self):
         return self._data
+
+    def get_mappings(self):
+        return self._char_to_id, self._id_to_char, self._pos_to_id, self._id_to_pos
 
     def get_data_size(self):
         return len(self._data)
@@ -62,9 +72,9 @@ class Loader(object):
         data = []
         for line in self._raw_data:
             l = line.split('\t')
-            input_seq = [self._char_to_id[c] for c in l[0]]
-            label_seq = [self._char_to_id[START_DECODING]] + [self._char_to_id[c] for c in l[1]] + [self._char_to_id[END_DECODING]]
-            pos = [self._pos_to_id[p] for p in l[2].split(';')]
+            input_seq = [self._char_to_id[c if c in self._char_to_id else UNKNOWN_CHARACTER] for c in l[0]]
+            label_seq = [self._char_to_id[START_DECODING]] + [self._char_to_id[c if c in self._char_to_id else UNKNOWN_CHARACTER] for c in l[1]] + [self._char_to_id[END_DECODING]]
+            pos = [self._pos_to_id[p if p in self._char_to_id else UNKNOWN_CHARACTER] for p in l[2].split(';')]
             data.append(
                 {
                     'input' : input_seq,
@@ -87,7 +97,7 @@ class Loader(object):
                 dico[item] += 1
         return dico
 
-    def create_mapping(self, dico):
+    def _create_mapping(self, dico):
         """
         Create a mapping (item to ID / ID to item) from a dictionary.
         Items are ordered by decreasing frequency.
