@@ -75,11 +75,12 @@ def start_train(model, criterion, opts, train_batcher):
 
     opt = optim.Adadelta(model.parameters(), lr=0.1)
     epoch = 100
-    # trainning 
+    # trainning
     for step in xrange(epoch):
         if step != 0:
             torch.save(model, '../model/model%d.pkl'%(step))
 
+        total_loss = []
         t = trange(int(math.ceil(opts.data_size / opts.batch_size)), desc='ML')
         for iter in t:
             input, target, pos, target_length, input_length = train_batcher.next()
@@ -90,7 +91,7 @@ def start_train(model, criterion, opts, train_batcher):
             loss_t = 0
             accuracy = 0
             predicts = Variable(torch.ones(opts.batch_size, len(target[0])))
-
+            loss = []
             opt.zero_grad()
             if opts.use_cuda:
                 input_tensor = input_tensor.cuda()
@@ -101,12 +102,15 @@ def start_train(model, criterion, opts, train_batcher):
             _, outputs = model(input_tensor, pos_tensor, target_tensor)
 
             for i in xrange(len(target[0]) - 1):
-                target = target_tensor[:, i + 1].contiguous().view(-1)
-                loss_t += criterion(outputs[i], target)
+                label = target_tensor[:, i + 1].contiguous().view(-1)
+                loss.append(criterion(outputs[i], label))
+                loss_t += criterion(outputs[i], label)
                 _, pred = torch.max(outputs[i], 1)
                 predicts[:, i] = pred
 
             loss_t /= (np.sum(target_length) - opts.batch_size)
+            total_loss.append(loss_t.cpu().data[0])
+            loss_t.backward()
             opt.step()
 
             mask = target_tensor != 0
@@ -114,12 +118,18 @@ def start_train(model, criterion, opts, train_batcher):
             predicts_mask.masked_copy_(mask.data, predicts.data).long()
             predicts_mask = Variable(predicts_mask.long())
 
-            accuracy = torch.sum((predicts_mask[:,:-1] == target_tensor[:,1:]).long()) - torch.sum((target_tensor[:,1:] == 0).long())
-            if iter == 300:
-                print target
-                print predicts_mask[:,:-1]
-                print target_tensor[:,1:]
+            correct = predicts_mask[:, :-1] == target_tensor[:, 1:]
+            correct_num = torch.sum(correct.long())
+            padding_num = torch.sum((target_tensor[:, 1:] == 0).long())
+
+            if iter == 600:
+                print target_tensor[:, 1:]
+                print predicts_mask[:, :-1]
+
+            accuracy = correct_num - padding_num
+
             t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss_t.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
+        print 'Average loss: %g' % (np.mean(total_loss))
 
 def decode(model, opts, test_batcher):
     """
@@ -131,7 +141,7 @@ def decode(model, opts, test_batcher):
         torch.cuda.manual_seed(opts.seed)
     else:
         print "Find GPU unable, using CPU to compute..."
-    input, target, pos, target_length = test_batcher.next()
+    input, target, pos, target_length, input_length = test_batcher.next()
     input_tensor = Variable(torch.LongTensor(input))
     target_tensor = Variable(torch.LongTensor(target))
     pos_tensor = Variable(torch.LongTensor(pos))
@@ -140,13 +150,22 @@ def decode(model, opts, test_batcher):
         target_tensor = target_tensor.cuda()
         pos_tensor = pos_tensor.cuda()
 
-    encoder_output, encoder_state = model.encode_once(input_tensor, pos_tensor)
-    
+    encoder_state, encoder_output, pos_feature = model.encode_once(input_tensor, pos_tensor)
+
     start_decode = target_tensor[0,0].unsqueeze(1)
-    (hs, cs), output = model.decode_once(encoder_state, encoder_output, start_decode, initial_state=True)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, start_decode, initial_state=False)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, Variable(torch.LongTensor([24]).unsqueeze(1)).cuda(), initial_state=False)
-    print output
+    print start_decode.size()
+    (hs, cs), output = model.decode_once(encoder_state, encoder_output, start_decode, pos_feature, initial_state=True)
+    _, argmax = torch.max(output[0], 1)
+    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
+    _, argmax = torch.max(output[0], 1)
+    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
+    _, argmax = torch.max(output[0], 1)
+    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
+    _, argmax = torch.max(output[0], 1)
+    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
+    _, argmax = torch.max(output[0], 1)
+    #(hs, cs), output = model.decode_once((hs, cs), encoder_output, Variable(torch.LongTensor([24]).unsqueeze(1)).cuda(), pos_feature, initial_state=False)
+    print argmax
     _, index = torch.topk(output[0], 10)
     print index
 

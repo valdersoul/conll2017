@@ -22,38 +22,35 @@ class Module(nn.Module):
 
         self.dropout = nn.Dropout(p=self._opts.dropout)
 
-        init.uniform(self.char_emb.weight, -1 , 1)
-        init.uniform(self.pos_emb.weight, -1 , 1)
+        init.kaiming_uniform(self.char_emb.weight)
+        init.kaiming_uniform(self.pos_emb.weight)
 
     def forward(self, input, pos, label):
+
+        encoder_state, encoder_output, pos_feature = self.encode_once(input, pos)
+
+        label = self.dropout(self.char_emb(label))
+        (hs, cs), output = self.decoder(encoder_state, encoder_output, label, pos_feature)
+
+        return (hs, cs), output
+
+    def encode_once(self, input, pos):
         batch_size = pos.size(0)
 
         input = self.dropout(self.char_emb(input))
         pos = self.dropout(self.pos_emb(pos))
-        label = self.dropout(self.char_emb(label))
 
         hidden = self.encoder.init_hidden(batch_size)
         encoder_output, encoder_state, pos_feature = self.encoder(input, pos, hidden)
         encoder_output.contiguous()
 
-        (hs, cs), output = self.decoder(encoder_state, encoder_output, label, pos_feature)
+        return encoder_state, encoder_output, pos_feature
 
-        return (hs, cs), output
-    
-    def encode_once(self, input, pos):
-        batch_size = input.size(0)
+    def decode_once(self, encoder_state, encoder_output, word, pos_feature, initial_state=False):
 
-        input = self.dropout(self.char_emb(input))
-        pos = self.dropout(self.pos_emb(pos))
+        word = self.dropout(self.char_emb(word))
 
-        hidden = self.encoder.init_hidden(batch_size)
-        encoder_output, encoder_state = self.encoder(input, pos, hidden)
-        encoder_output.contiguous()
-        return encoder_output, encoder_state
-    
-    def decode_once(self, encoder_state, encoder_output, input, initial_state = False):
-        input = self.dropout(self.char_emb(input))
-        (hs, cs), output = self.decoder(encoder_state, encoder_output, input, initial_state)
+        (hs, cs), output = self.decoder(encoder_state, encoder_output, word, pos_feature, initial_state)
         return (hs, cs), output
 
 class Encoder(nn.Module):
@@ -64,7 +61,7 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self._opts = opts
 
-        self.encoder = nn.LSTM(self._opts.emb_size, self._opts.hidden_size, batch_first = True, bidirectional = True)
+        self.encoder = nn.LSTM(self._opts.emb_size, self._opts.hidden_size, batch_first=True, bidirectional=True)
 
         self.fc_h = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
         self.fc_c = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
@@ -102,8 +99,8 @@ class Encoder(nn.Module):
         """
         Initial the hidden state
         """
-        h0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size), requires_grad = False)
-        c0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size), requires_grad = False)
+        h0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size), requires_grad=False)
+        c0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size), requires_grad=False)
 
         if self._opts.use_cuda:
             h0 = h0.cuda()
@@ -127,7 +124,7 @@ class AttenDecoder(nn.Module):
         init.kaiming_uniform(self.line_in.weight)
         init.kaiming_uniform(self.line_out.weight)
 
-    def forward(self, encoder_state, encoder_output, target, pos_feature, initial_state = True):
+    def forward(self, encoder_state, encoder_output, target, pos_feature, initial_state=True):
         batch_size = target.size(0)
 
         hs = encoder_state[0]
@@ -137,8 +134,10 @@ class AttenDecoder(nn.Module):
         # target size is batch_size x seq_len x emb_size
         for i in xrange(target.size()[1]):
             #compute w_s * s_i ------> batch_size * 1 * hidden_size
-            hs, cs = self.decoder(target[:, i], (hs, cs))
-            
+            decode_input = target.squeeze(1) if target.size()[1] == 1 else target[:, 1]
+            print decode_input.size()
+            hs, cs = self.decoder(decode_input, (hs, cs))
+
             targetT = self.line_in(hs).unsqueeze(2)
 
             attn = torch.bmm(encoder_output, targetT).squeeze(2)

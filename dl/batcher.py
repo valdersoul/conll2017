@@ -21,7 +21,7 @@ class Batcher(object):
             self._index = np.random.permutation(self._data_len)
         self._max_pos_len = max_pos_len
         self._curser = 0
-    
+
     def next(self):
         """
         return next batch data
@@ -60,7 +60,7 @@ class Batcher(object):
             pos = self.padding(pos, self._max_pos_len)
             self._curser += data_moved
 
-            return input, target, pos, target_length, input_length 
+            return input, target, pos, target_length, input_length
 
         for i in self._index[self._curser : self._curser + self._batch_size]:
             input_length.append(self._data[i]['input'])
@@ -80,7 +80,8 @@ class Batcher(object):
         """
         padding the sequence to the longest seq
         """
+        temp = []
         maxlen = maxlength if maxlength != 0 else len(max(input, key=len))
         for i in xrange(self._batch_size):
-            input[i] += [0] * (maxlen - len(input[i]))
-        return input
+            temp.append(input[i] + [0] * (maxlen - len(input[i])))
+        return temp
