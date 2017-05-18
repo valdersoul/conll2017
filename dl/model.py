@@ -33,10 +33,10 @@ class Module(nn.Module):
         label = self.dropout(self.char_emb(label))
 
         hidden = self.encoder.init_hidden(batch_size)
-        encoder_output, encoder_state = self.encoder(input, pos, hidden)
+        encoder_output, encoder_state, pos_feature = self.encoder(input, pos, hidden)
         encoder_output.contiguous()
 
-        (hs, cs), output = self.decoder(encoder_state, encoder_output, label)
+        (hs, cs), output = self.decoder(encoder_state, encoder_output, label, pos_feature)
 
         return (hs, cs), output
     
@@ -72,13 +72,10 @@ class Encoder(nn.Module):
         self.fc_pos_1 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size, self._opts.max_pos_len * self._opts.emb_size / 2)
         self.fc_pos_2 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size / 2, self._opts.hidden_size)
 
-        self.pos_gate = nn.Linear(self._opts.hidden_size, 1)
-
-        init.uniform(self.fc_h.weight, -1 , 1)
-        init.uniform(self.fc_c.weight, -1 , 1)
-        init.uniform(self.fc_pos_1.weight, -1 , 1)
-        init.uniform(self.fc_pos_2.weight, -1 , 1)
-        init.uniform(self.pos_gate.weight, -1 , 1)
+        init.uniform(self.fc_h.weight, -1, 1)
+        init.uniform(self.fc_c.weight, -1, 1)
+        init.uniform(self.fc_pos_1.weight, -1, 1)
+        init.uniform(self.fc_pos_2.weight, -1, 1)
 
     def forward(self, input, pos, hidden):
         """
@@ -90,7 +87,6 @@ class Encoder(nn.Module):
         f2 = F.tanh(self.fc_pos_2(f1))
 
         pos_c_state = f2
-        pos_gate = F.sigmoid(self.pos_gate(pos_c_state))
 
         output, state = self.encoder(input, hidden)
 
@@ -99,19 +95,15 @@ class Encoder(nn.Module):
 
         he_reduced = self.fc_h(he.view(batch_size, -1))
         ce_reduced = self.fc_c(ce.view(batch_size, -1))
-        
-        pos_gate = pos_gate.repeat(1, self._opts.hidden_size)
 
-        ce_reduced = (1 - pos_gate) * ce_reduced + pos_gate * pos_c_state
-
-        return output, (he_reduced, ce_reduced)
+        return output, (he_reduced, ce_reduced), pos_c_state
 
     def init_hidden(self, batch_size):
         """
         Initial the hidden state
         """
-        h0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size))
-        c0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size))
+        h0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size), requires_grad = False)
+        c0 = Variable(torch.zeros(2, batch_size, self._opts.hidden_size), requires_grad = False)
 
         if self._opts.use_cuda:
             h0 = h0.cuda()
@@ -129,32 +121,15 @@ class AttenDecoder(nn.Module):
 
         self._atten_size = 2 * self._opts.hidden_size
 
-        # w_h for hidden_states from encoder
-        self.wh = nn.Conv2d(2 * self._opts.hidden_size, self._atten_size, 1, bias=False)
-        # w_s for state output by the decoder
-        self.ws = nn.Linear(self._opts.hidden_size * 2, self._atten_size)
+        self.line_in = nn.Linear(self._opts.hidden_size, self._opts.hidden_size * 2)
+        self.line_out = nn.Linear(self._atten_size + self._opts.hidden_size * 2, self._opts.vocab_len)
 
-        self.we = nn.Conv1d(self._atten_size, 1, 1, bias=False)
+        init.kaiming_uniform(self.line_in.weight)
+        init.kaiming_uniform(self.line_out.weight)
 
-        self.V = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
-        self.V_prime = nn.Linear(self._opts.hidden_size + self._atten_size, self._opts.vocab_len)
-
-        init.uniform(self.ws.weight, -1 , 1)
-        init.uniform(self.V.weight, -1 , 1)
-        init.uniform(self.V_prime.weight, -1 , 1)
-
-        init.kaiming_uniform(self.we.weight)
-        init.kaiming_uniform(self.wh.weight)
-
-    def forward(self, encoder_state, encoder_output, target, initial_state = True):
+    def forward(self, encoder_state, encoder_output, target, pos_feature, initial_state = True):
         batch_size = target.size(0)
 
-        if initial_state:
-            encoder_outputs = encoder_output
-            encoder_outputs = encoder_outputs.view(batch_size, self._atten_size, 1, -1)
-            # w_h * h_i ---> batch_size x seq_len x hidden_size
-            self._encoder_features = self.wh(encoder_outputs).view(batch_size, -1, self._atten_size)
-            #self._encoder_features = encoder_output.view(batch_size, -1, self._atten_size)
         hs = encoder_state[0]
         cs = encoder_state[1]
 
@@ -162,21 +137,18 @@ class AttenDecoder(nn.Module):
         # target size is batch_size x seq_len x emb_size
         for i in xrange(target.size()[1]):
             #compute w_s * s_i ------> batch_size * 1 * hidden_size
-            decoder_features = self.ws(torch.cat((hs, cs), 1)).unsqueeze(1)
-            decoder_features = decoder_features.expand_as(self._encoder_features)
+            hs, cs = self.decoder(target[:, i], (hs, cs))
+            
+            targetT = self.line_in(hs).unsqueeze(2)
 
-            #compute v * (w_h * h_i + w_s * s_i)
-            combined_features = (self._encoder_features + decoder_features).view(batch_size, self._atten_size, -1)
-            e = self.we(F.tanh(combined_features)).squeeze(1)
-
-            softmax_score = F.softmax(e).unsqueeze(1)
+            attn = torch.bmm(encoder_output, targetT).squeeze(2)
+            softmax_score = F.softmax(attn).unsqueeze(1)
 
             h_star = torch.bmm(softmax_score, encoder_output).squeeze(1)
 
-            hs, cs = self.decoder(target[:, i], (hs, cs))
+            feature = torch.cat((h_star, hs, pos_feature), 1)
 
-            feature = torch.cat((h_star, hs), 1)
-            output = F.log_softmax(self.V_prime(feature))
+            output = F.log_softmax(self.line_out(feature))
             outputs.append(output)
 
         return (hs, cs), outputs

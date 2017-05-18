@@ -74,7 +74,7 @@ def start_train(model, criterion, opts, train_batcher):
         print "Find GPU unable, using CPU to compute..."
 
     opt = optim.Adadelta(model.parameters(), lr=0.1)
-    epoch = 30
+    epoch = 100
     # trainning 
     for step in xrange(epoch):
         if step != 0:
@@ -87,7 +87,7 @@ def start_train(model, criterion, opts, train_batcher):
             target_tensor = Variable(torch.LongTensor(target))
             pos_tensor = Variable(torch.LongTensor(pos))
 
-            loss = 0
+            loss_t = 0
             accuracy = 0
             predicts = Variable(torch.ones(opts.batch_size, len(target[0])))
 
@@ -97,16 +97,16 @@ def start_train(model, criterion, opts, train_batcher):
                 target_tensor = target_tensor.cuda()
                 pos_tensor = pos_tensor.cuda()
                 predicts = predicts.cuda()
-            
+
             _, outputs = model(input_tensor, pos_tensor, target_tensor)
 
             for i in xrange(len(target[0]) - 1):
-                loss += criterion(outputs[i], target_tensor[:, i + 1])
+                target = target_tensor[:, i + 1].contiguous().view(-1)
+                loss_t += criterion(outputs[i], target)
                 _, pred = torch.max(outputs[i], 1)
-                predicts[:,i] = pred
+                predicts[:, i] = pred
 
-            loss /= (np.sum(target_length) - opts.batch_size)
-            loss.backward()
+            loss_t /= (np.sum(target_length) - opts.batch_size)
             opt.step()
 
             mask = target_tensor != 0
@@ -119,7 +119,7 @@ def start_train(model, criterion, opts, train_batcher):
                 print target
                 print predicts_mask[:,:-1]
                 print target_tensor[:,1:]
-            t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
+            t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss_t.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
 
 def decode(model, opts, test_batcher):
     """
@@ -143,9 +143,9 @@ def decode(model, opts, test_batcher):
     encoder_output, encoder_state = model.encode_once(input_tensor, pos_tensor)
     
     start_decode = target_tensor[0,0].unsqueeze(1)
-    (hs, cs), output = model.decode_once(encoder_state, encoder_output, start_decode, initial_state = True)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, start_decode, initial_state = False)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, Variable(torch.LongTensor([24]).unsqueeze(1)).cuda(), initial_state = False)
+    (hs, cs), output = model.decode_once(encoder_state, encoder_output, start_decode, initial_state=True)
+    (hs, cs), output = model.decode_once((hs, cs), encoder_output, start_decode, initial_state=False)
+    (hs, cs), output = model.decode_once((hs, cs), encoder_output, Variable(torch.LongTensor([24]).unsqueeze(1)).cuda(), initial_state=False)
     print output
     _, index = torch.topk(output[0], 10)
     print index
