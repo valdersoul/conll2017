@@ -1,17 +1,22 @@
 from __future__ import division
-from collections import OrderedDict
-from tqdm import trange
-
-from model import *
-from data import Loader
-from batcher import Batcher
 
 import math
 import optparse
+import time
+import numpy as np
+import codecs
+import os
+
+from collections import OrderedDict
+from tqdm import trange
+from model import Module
+from data import Loader
+from batcher import Batcher
+from beam import Beam, Hyper
 import torch
 from torch import optim
-import time
-import numpy as np 
+from torch import nn
+from torch.autograd import Variable
 
 # Read parameters from command line
 optparser = optparse.OptionParser()
@@ -60,6 +65,10 @@ optparser.add_option(
     "-r", "--model_path", default="",
     help="reload model location"
 )
+optparser.add_option(
+    "-R", "--result_file", default="",
+    help="result file location"
+)
 
 def start_train(model, criterion, opts, train_batcher):
     """
@@ -73,8 +82,8 @@ def start_train(model, criterion, opts, train_batcher):
     else:
         print "Find GPU unable, using CPU to compute..."
 
-    opt = optim.Adadelta(model.parameters(), lr=0.1)
-    epoch = 100
+    opt = optim.Adam(model.parameters(), lr=5e-4)
+    epoch = 150
     # trainning
     for step in xrange(epoch):
         if step != 0:
@@ -122,16 +131,12 @@ def start_train(model, criterion, opts, train_batcher):
             correct_num = torch.sum(correct.long())
             padding_num = torch.sum((target_tensor[:, 1:] == 0).long())
 
-            if iter == 600:
-                print target_tensor[:, 1:]
-                print predicts_mask[:, :-1]
-
             accuracy = correct_num - padding_num
 
             t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss_t.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
         print 'Average loss: %g' % (np.mean(total_loss))
 
-def decode(model, opts, test_batcher):
+def decode(model, opts, test_batcher, i2c, i2p):
     """
     Decode the input
     """
@@ -141,33 +146,43 @@ def decode(model, opts, test_batcher):
         torch.cuda.manual_seed(opts.seed)
     else:
         print "Find GPU unable, using CPU to compute..."
-    input, target, pos, target_length, input_length = test_batcher.next()
-    input_tensor = Variable(torch.LongTensor(input))
-    target_tensor = Variable(torch.LongTensor(target))
-    pos_tensor = Variable(torch.LongTensor(pos))
-    if opts.use_cuda:
-        input_tensor = input_tensor.cuda()
-        target_tensor = target_tensor.cuda()
-        pos_tensor = pos_tensor.cuda()
 
-    encoder_state, encoder_output, pos_feature = model.encode_once(input_tensor, pos_tensor)
+    result_file = opts.result_file
+    result_writer = codecs.open(result_file, 'w', 'utf-8')
 
-    start_decode = target_tensor[0,0].unsqueeze(1)
-    print start_decode.size()
-    (hs, cs), output = model.decode_once(encoder_state, encoder_output, start_decode, pos_feature, initial_state=True)
-    _, argmax = torch.max(output[0], 1)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
-    _, argmax = torch.max(output[0], 1)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
-    _, argmax = torch.max(output[0], 1)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
-    _, argmax = torch.max(output[0], 1)
-    (hs, cs), output = model.decode_once((hs, cs), encoder_output, argmax, pos_feature, initial_state=False)
-    _, argmax = torch.max(output[0], 1)
-    #(hs, cs), output = model.decode_once((hs, cs), encoder_output, Variable(torch.LongTensor([24]).unsqueeze(1)).cuda(), pos_feature, initial_state=False)
-    print argmax
-    _, index = torch.topk(output[0], 10)
-    print index
+    t = trange(opts.data_size, desc='DECODE')
+    for iter in t:
+        input, target, pos, target_length, input_length = test_batcher.next()
+        input_tensor = Variable(torch.LongTensor(input))
+        target_tensor = Variable(torch.LongTensor(target))
+        pos_tensor = Variable(torch.LongTensor(pos))
+        if opts.use_cuda:
+            input_tensor = input_tensor.cuda()
+            target_tensor = target_tensor.cuda()
+            pos_tensor = pos_tensor.cuda()
+
+        encoder_state, encoder_output, pos_feature = model.encode_once(input_tensor, pos_tensor)
+        start_decode = Variable(torch.LongTensor([0])).cuda().unsqueeze(1)
+
+        beam = Beam(model, opts.beam_size, opts.max_target_len, encoder_state, encoder_output, pos_feature, start_decode)
+        hyper = beam.run()
+
+        raw_input = ""
+        result = ""
+        raw_pos = ""
+        for word in hyper.word_list:
+            result += i2c[word]
+        for word in input[0]:
+            raw_input += i2c[word]
+        for word in pos[0]:
+            if word == 0:
+                break
+            raw_pos += i2p[word]+";"
+        raw_pos = raw_pos[:-1]
+
+        result_writer.write(raw_input + '\t' + result + '\t' + raw_pos + '\n')
+    result_writer.close()
+    os.system(('../evaluation/evalm.py --gold %s --guess %s --task 1')%(opts.test, opts.result_file))
 
 def main(): 
     opts = optparser.parse_args()[0]
@@ -177,6 +192,7 @@ def main():
     opts.vocab_len = len(train_loader._char_to_id)
     opts.pos_len = len(train_loader._pos_to_id)
     opts.max_pos_len = train_loader._pos_max_len
+    opts.max_target_len = train_loader._char_max_len
     opts.use_cuda = opts.use_cuda == 1
     opts.eval = opts.eval == 1
     opts.data_size = train_loader.get_data_size()
@@ -186,7 +202,6 @@ def main():
     torch.manual_seed(opts.seed)
     np.random.seed(opts.seed)
 
-    
     if not opts.eval:
         # weights for paddings, set to 0
         loss_weights = torch.ones(opts.vocab_len)
@@ -200,11 +215,11 @@ def main():
         model = torch.load(opts.model_path)
         model.eval()
         print model
-        
+
         c2i, i2c, p2i, i2p = train_loader.get_mappings()
         test_loader = Loader(opts.test, c2i, i2c, p2i, i2p)
         test_batcher = Batcher(1, test_loader.get_data(), opts.max_pos_len, opts.eval)
-        decode(model, opts, test_batcher)
-        print i2c
+        decode(model, opts, test_batcher, i2c, i2p)
+
 if __name__ == '__main__':
     main()

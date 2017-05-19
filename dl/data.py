@@ -28,8 +28,8 @@ class Loader(object):
             self._lemma += [w for w in t1]
             self._form += [w for w in t2]
             self._pos += t3.split(';')
-            if len(t1) > self._char_max_len:
-                self._char_max_len = len(t1)
+            if len(t2) > self._char_max_len:
+                self._char_max_len = len(t2)
             if len(t3.split(';')) > self._pos_max_len:
                 self._pos_max_len = len(t3.split(';'))
 
@@ -44,7 +44,7 @@ class Loader(object):
             char_dico[PADDING] = MAX_COUNT
             char_dico[START_DECODING] = MAX_COUNT - 2
             char_dico[END_DECODING] = MAX_COUNT - 3
-            
+
             pos_dico[UNKNOWN_CHARACTER] = MAX_COUNT - 1
             pos_dico[PADDING] = MAX_COUNT
 
@@ -74,7 +74,7 @@ class Loader(object):
             l = line.split('\t')
             input_seq = [self._char_to_id[c if c in self._char_to_id else UNKNOWN_CHARACTER] for c in l[0]]
             label_seq = [self._char_to_id[START_DECODING]] + [self._char_to_id[c if c in self._char_to_id else UNKNOWN_CHARACTER] for c in l[1]] + [self._char_to_id[END_DECODING]]
-            pos = [self._pos_to_id[p if p in self._char_to_id else UNKNOWN_CHARACTER] for p in l[2].split(';')]
+            pos = [self._pos_to_id[p if p in self._pos_to_id else UNKNOWN_CHARACTER] for p in l[2].split(';')]
             data.append(
                 {
                     'input' : input_seq,

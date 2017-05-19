@@ -63,16 +63,15 @@ class Encoder(nn.Module):
 
         self.encoder = nn.LSTM(self._opts.emb_size, self._opts.hidden_size, batch_first=True, bidirectional=True)
 
-        self.fc_h = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
-        self.fc_c = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
+        self.fc_h = nn.Linear(3 * self._opts.hidden_size, self._opts.hidden_size)
+        self.fc_c = nn.Linear(3 * self._opts.hidden_size, self._opts.hidden_size)
 
-        self.fc_pos_1 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size, self._opts.max_pos_len * self._opts.emb_size / 2)
-        self.fc_pos_2 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size / 2, self._opts.hidden_size)
+        self.fc_pos_1 = nn.Linear(self._opts.max_pos_len * self._opts.emb_size, self._opts.hidden_size)
 
         init.uniform(self.fc_h.weight, -1, 1)
         init.uniform(self.fc_c.weight, -1, 1)
         init.uniform(self.fc_pos_1.weight, -1, 1)
-        init.uniform(self.fc_pos_2.weight, -1, 1)
+
 
     def forward(self, input, pos, hidden):
         """
@@ -81,17 +80,15 @@ class Encoder(nn.Module):
 
         batch_size = input.size(0)
         f1 = F.tanh(self.fc_pos_1(pos.view(batch_size, -1)))
-        f2 = F.tanh(self.fc_pos_2(f1))
-
-        pos_c_state = f2
+        pos_c_state = f1
 
         output, state = self.encoder(input, hidden)
 
         he = state[0]
         ce = state[1]
 
-        he_reduced = self.fc_h(he.view(batch_size, -1))
-        ce_reduced = self.fc_c(ce.view(batch_size, -1))
+        he_reduced = self.fc_h(torch.cat((he.view(batch_size, -1), pos_c_state), 1))
+        ce_reduced = self.fc_c(torch.cat((ce.view(batch_size, -1), pos_c_state), 1))
 
         return output, (he_reduced, ce_reduced), pos_c_state
 
@@ -119,7 +116,7 @@ class AttenDecoder(nn.Module):
         self._atten_size = 2 * self._opts.hidden_size
 
         self.line_in = nn.Linear(self._opts.hidden_size, self._opts.hidden_size * 2)
-        self.line_out = nn.Linear(self._atten_size + self._opts.hidden_size * 2, self._opts.vocab_len)
+        self.line_out = nn.Linear(self._atten_size + self._opts.hidden_size, self._opts.vocab_len)
 
         init.kaiming_uniform(self.line_in.weight)
         init.kaiming_uniform(self.line_out.weight)
@@ -134,8 +131,8 @@ class AttenDecoder(nn.Module):
         # target size is batch_size x seq_len x emb_size
         for i in xrange(target.size()[1]):
             #compute w_s * s_i ------> batch_size * 1 * hidden_size
-            decode_input = target.squeeze(1) if target.size()[1] == 1 else target[:, 1]
-            print decode_input.size()
+            decode_input = target.squeeze(1) if target.size()[1] == 1 else target[:, i]
+
             hs, cs = self.decoder(decode_input, (hs, cs))
 
             targetT = self.line_in(hs).unsqueeze(2)
@@ -145,7 +142,7 @@ class AttenDecoder(nn.Module):
 
             h_star = torch.bmm(softmax_score, encoder_output).squeeze(1)
 
-            feature = torch.cat((h_star, hs, pos_feature), 1)
+            feature = torch.cat((h_star, hs), 1)
 
             output = F.log_softmax(self.line_out(feature))
             outputs.append(output)
