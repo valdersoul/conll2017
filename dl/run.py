@@ -82,8 +82,8 @@ def start_train(model, criterion, opts, train_batcher):
     else:
         print "Find GPU unable, using CPU to compute..."
 
-    opt = optim.Adam(model.parameters(), lr=5e-4)
-    epoch = 150
+    opt = optim.Adadelta(model.parameters())
+    epoch = 100
     # trainning
     for step in xrange(epoch):
         if step != 0:
@@ -108,7 +108,9 @@ def start_train(model, criterion, opts, train_batcher):
                 pos_tensor = pos_tensor.cuda()
                 predicts = predicts.cuda()
 
-            _, outputs = model(input_tensor, pos_tensor, target_tensor)
+            teacher = False
+
+            _, outputs = model(input_tensor, pos_tensor, target_tensor, teacher)
 
             for i in xrange(len(target[0]) - 1):
                 label = target_tensor[:, i + 1].contiguous().view(-1)
@@ -217,8 +219,12 @@ def main():
         print model
 
         c2i, i2c, p2i, i2p = train_loader.get_mappings()
+
         test_loader = Loader(opts.test, c2i, i2c, p2i, i2p)
         test_batcher = Batcher(1, test_loader.get_data(), opts.max_pos_len, opts.eval)
+
+        opts.data_size = test_loader.get_data_size()
+        print i2c
         decode(model, opts, test_batcher, i2c, i2p)
 
 if __name__ == '__main__':
