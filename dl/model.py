@@ -25,12 +25,12 @@ class Module(nn.Module):
         init.kaiming_uniform(self.char_emb.weight)
         init.kaiming_uniform(self.pos_emb.weight)
 
-    def forward(self, input, pos, label, initial_state=False):
+    def forward(self, input, pos, label):
 
-        encoder_state, encoder_output, pos_feature = self.encode_once(input, pos)
+        encoder_state, encoder_output, pos_feature, input = self.encode_once(input, pos)
 
         label = self.dropout(self.char_emb(label))
-        state, output = self.decoder(encoder_state, encoder_output, label, pos_feature, self.char_emb, initial_state)
+        state, output = self.decoder(encoder_state, encoder_output, label, input, pos_feature, self.char_emb)
 
         return state, output
 
@@ -44,13 +44,14 @@ class Module(nn.Module):
         encoder_output, encoder_state, pos_feature = self.encoder(input, pos, hidden)
         encoder_output.contiguous()
 
-        return encoder_state, encoder_output, pos_feature
+        return encoder_state, encoder_output, pos_feature, input
 
-    def decode_once(self, encoder_state, encoder_output, word, pos_feature, initial_state=False):
+    def decode_once(self, encoder_state, encoder_output, word, input, pos_feature, pre_state=None):
 
-        word = self.dropout(self.char_emb(word))
+        word = self.char_emb(word)
+        input = self.char_emb(input)
 
-        state, output = self.decoder(encoder_state, encoder_output, word, pos_feature, self.char_emb, initial_state)
+        state, output = self.decoder(encoder_state, encoder_output, word, input, pos_feature, self.char_emb, pre_state)
         return state, output
 
 class Encoder(nn.Module):
@@ -115,7 +116,7 @@ class AttenDecoder(nn.Module):
     def __init__(self, opts):
         super(AttenDecoder, self).__init__()
         self._opts = opts
-        self.decoder = nn.GRUCell(self._opts.emb_size * 2, self._opts.hidden_size)
+        self.decoder = nn.GRUCell(self._opts.emb_size * 3 + self._opts.hidden_size, self._opts.hidden_size)
 
         self._atten_size = 2 * self._opts.hidden_size
 
@@ -125,19 +126,20 @@ class AttenDecoder(nn.Module):
         init.kaiming_uniform(self.line_in.weight)
         init.kaiming_uniform(self.line_out.weight)
 
-    def forward(self, encoder_state, encoder_output, target, pos_feature, char_embedding, initial_state=True):
+    def forward(self, encoder_state, encoder_output, target, input, pos_feature, char_embedding, pre_state=None):
         batch_size = target.size(0)
 
-        hs = encoder_state
+        hs = Variable(torch.zeros(batch_size, self._opts.hidden_size), requires_grad=False).cuda() if pre_state is None else pre_state
 
         outputs = []
-        argmax = target.squeeze(1)
+        #argmax = target.squeeze(1)
         # target size is batch_size x seq_len x emb_size
         for i in xrange(target.size()[1]):
             #compute w_s * s_i ------> batch_size * 1 * hidden_size
-            decode_input = argmax if ((target.size()[1] == 1 or initial_state) and i is not 0) else target[:, i]
+            decode_input = target[:, i]
+            input_tensor = input[:, i] if input.size()[1] > i else Variable(torch.zeros(batch_size, self._opts.emb_size), requires_grad=False).cuda()
 
-            hs = self.decoder(torch.cat((decode_input, pos_feature), 1), hs)
+            hs = self.decoder(torch.cat((decode_input, pos_feature, encoder_state, input_tensor), 1), hs)
 
             targetT = self.line_in(hs).unsqueeze(2)
 
@@ -150,8 +152,5 @@ class AttenDecoder(nn.Module):
 
             output = F.log_softmax(F.relu(self.line_out(feature)))
             outputs.append(output)
-
-            _, argmax = torch.max(output, 1)
-            argmax = char_embedding(argmax).squeeze()
 
         return hs, outputs

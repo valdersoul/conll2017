@@ -108,9 +108,7 @@ def start_train(model, criterion, opts, train_batcher):
                 pos_tensor = pos_tensor.cuda()
                 predicts = predicts.cuda()
 
-            teacher = False
-
-            _, outputs = model(input_tensor, pos_tensor, target_tensor, teacher)
+            _, outputs = model(input_tensor, pos_tensor, target_tensor)
 
             for i in xrange(len(target[0]) - 1):
                 label = target_tensor[:, i + 1].contiguous().view(-1)
@@ -163,10 +161,10 @@ def decode(model, opts, test_batcher, i2c, i2p):
             target_tensor = target_tensor.cuda()
             pos_tensor = pos_tensor.cuda()
 
-        encoder_state, encoder_output, pos_feature = model.encode_once(input_tensor, pos_tensor)
-        start_decode = Variable(torch.LongTensor([0])).cuda().unsqueeze(1)
+        encoder_state, encoder_output, pos_feature,_ = model.encode_once(input_tensor, pos_tensor)
+        start_decode = Variable(torch.LongTensor([2])).cuda().unsqueeze(1)
 
-        beam = Beam(model, opts.beam_size, opts.max_target_len, encoder_state, encoder_output, pos_feature, start_decode)
+        beam = Beam(model, opts.beam_size, opts.max_target_len, encoder_state, encoder_output, pos_feature, start_decode, input)
         hyper = beam.run()
 
         raw_input = ""
@@ -181,8 +179,8 @@ def decode(model, opts, test_batcher, i2c, i2p):
                 break
             raw_pos += i2p[word]+";"
         raw_pos = raw_pos[:-1]
-
         result_writer.write(raw_input + '\t' + result + '\t' + raw_pos + '\n')
+
     result_writer.close()
     os.system(('../evaluation/evalm.py --gold %s --guess %s --task 1')%(opts.test, opts.result_file))
 
