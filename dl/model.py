@@ -71,6 +71,8 @@ class Encoder(nn.Module):
 
         self.dropout = nn.Dropout(p=self._opts.dropout)
 
+        self.bn = nn.BatchNorm1d(2 * self._opts.emb_size)
+
         for w in self.encoder.all_weights:
             nn.init.orthogonal(w[0])
 
@@ -86,7 +88,10 @@ class Encoder(nn.Module):
 
         f3 = f2.unsqueeze(1).repeat(1, input.size()[1], 1)
 
-        encoder_input = self.dropout(torch.cat((input, f3), 2))
+        encoder_input = torch.cat((input, f3), 2).view(batch_size, -1, input.size()[1])
+        encoder_input = self.bn(encoder_input).view(batch_size, -1, encoder_input.size()[1])
+
+        encoder_input = self.dropout(encoder_input)
         output, state = self.encoder(encoder_input, hidden[0])
 
         he = state
