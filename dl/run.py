@@ -26,6 +26,10 @@ optparser.add_option(
     help="Train set location"
 )
 optparser.add_option(
+    "-D", "--dev", default="",
+    help="develop set location"
+)
+optparser.add_option(
     "-t", "--test", default="",
     help="Test set location"
 )
@@ -69,8 +73,14 @@ optparser.add_option(
     "-R", "--result_file", default="",
     help="result file location"
 )
+optparser.add_option(
+     "--clip", default="5",
+    type='float', help="result file location"
+)
 
-def start_train(model, criterion, opts, train_batcher):
+decode_batch = 2
+
+def start_train(model, criterion, opts, train_batcher, dev_batcher):
     """
     Training the model
     """
@@ -82,13 +92,11 @@ def start_train(model, criterion, opts, train_batcher):
     else:
         print "Find GPU unable, using CPU to compute..."
 
-    opt = optim.Adadelta(model.parameters())
-    epoch = 100
+    opt = optim.Adadelta(model.parameters(), weight_decay=0.0001)
+    epoch = 200
+    devLoss = 100
     # trainning
     for step in xrange(epoch):
-        if step != 0:
-            torch.save(model, '../model/model%d.pkl'%(step))
-
         total_loss = []
         t = trange(int(math.ceil(opts.data_size / opts.batch_size)), desc='ML')
         for iter in t:
@@ -99,42 +107,84 @@ def start_train(model, criterion, opts, train_batcher):
 
             loss_t = 0
             accuracy = 0
-            predicts = Variable(torch.ones(opts.batch_size, len(target[0])))
             loss = []
             opt.zero_grad()
             if opts.use_cuda:
                 input_tensor = input_tensor.cuda()
                 target_tensor = target_tensor.cuda()
                 pos_tensor = pos_tensor.cuda()
-                predicts = predicts.cuda()
 
             _, outputs = model(input_tensor, pos_tensor, target_tensor)
 
             for i in xrange(len(target[0]) - 1):
                 label = target_tensor[:, i + 1].contiguous().view(-1)
-                loss.append(criterion(outputs[i], label))
                 loss_t += criterion(outputs[i], label)
-                _, pred = torch.max(outputs[i], 1)
-                predicts[:, i] = pred
 
             loss_t /= (np.sum(target_length) - opts.batch_size)
             total_loss.append(loss_t.cpu().data[0])
             loss_t.backward()
+            nn.utils.clip_grad_norm(model.parameters(), opts.clip)
             opt.step()
 
-            mask = target_tensor != 0
-            predicts_mask = torch.zeros(target_tensor.size()).cuda()
-            predicts_mask.masked_copy_(mask.data, predicts.data).long()
-            predicts_mask = Variable(predicts_mask.long())
-
-            correct = predicts_mask[:, :-1] == target_tensor[:, 1:]
-            correct_num = torch.sum(correct.long())
-            padding_num = torch.sum((target_tensor[:, 1:] == 0).long())
-
-            accuracy = correct_num - padding_num
-
-            t.set_description('Iter%d (loss=%g, accuracy=%g)' % (step, loss_t.cpu().data[0], accuracy.cpu().data[0] / (np.sum(target_length) - opts.batch_size)))
+            t.set_description('Iter%d (loss=%g)' % (step, loss_t.cpu().data[0]))
         print 'Average loss: %g' % (np.mean(total_loss))
+        ave_dev_loss = eval(model, dev_batcher, criterion)
+        if ave_dev_loss < devLoss:
+            print 'New best dev loss: %g' % (ave_dev_loss)
+            print 'Saving model ...'
+            torch.save(model, '../model/model%s.pkl'%(opts.train.split('/')[-1]))
+            devLoss = ave_dev_loss
+        model.train()
+
+def eval(model, dev_batcher, criterion):
+    model.eval()
+    t = trange(int(dev_batcher._data_len / decode_batch), desc='ML')
+    total_correct = []
+    for iter in t:
+        input, target, pos, target_length, input_length = dev_batcher.next()
+        input_tensor = Variable(torch.LongTensor(input))
+        target_tensor = Variable(torch.LongTensor(target))
+        pos_tensor = Variable(torch.LongTensor(pos))
+
+        accuracy = 0
+        loss_t = 0
+
+        input_tensor = input_tensor.cuda()
+        target_tensor = target_tensor.cuda()
+        pos_tensor = pos_tensor.cuda()
+
+        _, outputs = model(input_tensor, pos_tensor, target_tensor)
+
+        for i in xrange(len(target[0]) - 1):
+            label = target_tensor[:, i + 1].contiguous().view(-1)
+            loss_t += criterion(outputs[i], label)
+        loss_t /= (np.sum(target_length) - decode_batch)
+        loss_t = loss_t.cpu().data[0]
+        t.set_description('Evaluating (loss=%g)' % (loss_t))
+
+        total_correct.append(loss_t)
+
+    ave_loss = np.mean(total_correct)
+    print 'Average loss: %g' % (ave_loss)
+    return ave_loss
+
+def get_accuracy(predicts, target_tensor):
+    unmask = target_tensor[:, 1:] == 0
+    mask = target_tensor[:, 1:] != 0
+
+    total_num = (torch.sum(mask.long())).cpu().data[0]
+    zero_num = (torch.sum(unmask.long())).cpu().data[0]
+
+    predicts_mask = torch.zeros(target_tensor[:, 1:].size()).cuda()
+    predicts_mask.masked_copy_(mask.data, predicts.data).long()
+    predicts_mask = Variable(predicts_mask.long())
+
+    correct_mask = predicts_mask == target_tensor[:, 1:].long()
+    correct_num = torch.sum(correct_mask).cpu().data[0]
+
+    correct = (correct_num - zero_num) / total_num
+    return correct
+
 
 def decode(model, opts, test_batcher, i2c, i2p):
     """
@@ -178,7 +228,7 @@ def decode(model, opts, test_batcher, i2c, i2p):
             if word == 0:
                 break
             raw_pos += i2p[word]+";"
-        raw_pos = raw_pos[:-1]
+        raw_pos = 'V;' + raw_pos[:-1]
         result_writer.write(raw_input + '\t' + result + '\t' + raw_pos + '\n')
 
     result_writer.close()
@@ -208,9 +258,16 @@ def main():
         loss_weights[0] = 0
         criterion = nn.NLLLoss(loss_weights, size_average=False)
         model = Module(opts)
+        if opts.model_path is not '':
+            model = torch.load(opts.model_path)
         train_batcher = Batcher(opts.batch_size, train_loader.get_data(), opts.max_pos_len, opts.eval)
+
+        c2i, i2c, p2i, i2p = train_loader.get_mappings()
+        dev_loader = Loader(opts.dev, c2i, i2c, p2i, i2p)
+        dev_batcher = Batcher(decode_batch, dev_loader.get_data(), opts.max_pos_len, True)
+
         print model
-        start_train(model, criterion, opts, train_batcher)
+        start_train(model, criterion, opts, train_batcher, dev_batcher)
     else:
         model = torch.load(opts.model_path)
         model.eval()
