@@ -92,11 +92,14 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
     else:
         print "Find GPU unable, using CPU to compute..."
 
-    opt = optim.Adadelta(model.parameters(), weight_decay=0.0001)
-    epoch = 200
+    opt = optim.Adam(model.parameters(), weight_decay=0.0001)
+    epoch = 500
     devLoss = 100
+    best_step = 0
     # trainning
     for step in xrange(epoch):
+        if step % 50 == 0 and step != 0:
+            torch.save(model, "../model/model%d.pkl"%(step))
         total_loss = []
         t = trange(int(math.ceil(opts.data_size / opts.batch_size)), desc='ML')
         for iter in t:
@@ -134,6 +137,10 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
             print 'Saving model ...'
             torch.save(model, '../model/model%s.pkl'%(opts.train.split('/')[-1]))
             devLoss = ave_dev_loss
+            best_step = step
+        if step - best_step > 30 and step > 49:
+            print 'Eearly stopping, no update after 30 epoches'
+            break
         model.train()
 
 def eval(model, dev_batcher, criterion):
@@ -228,7 +235,7 @@ def decode(model, opts, test_batcher, i2c, i2p):
             if word == 0:
                 break
             raw_pos += i2p[word]+";"
-        raw_pos = 'V;' + raw_pos[:-1]
+        raw_pos = raw_pos[:-1]
         result_writer.write(raw_input + '\t' + result + '\t' + raw_pos + '\n')
 
     result_writer.close()

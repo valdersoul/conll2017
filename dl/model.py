@@ -35,7 +35,7 @@ class Module(nn.Module):
         batch_size = pos.size(0)
 
         input = self.dropout(self.char_emb(input))
-        pos = self.dropout(self.pos_emb(pos))
+        pos = self.dropout(self.char_emb(pos))
 
         hidden = self.encoder.init_hidden(batch_size)
         encoder_output, encoder_state, pos_feature = self.encoder(input, pos, hidden)
@@ -59,15 +59,20 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self._opts = opts
 
-        self.encoder = nn.GRU(self._opts.emb_size, self._opts.hidden_size, batch_first=True, bidirectional=True)
+        self.encoder = nn.GRU(2 * self._opts.emb_size, self._opts.hidden_size, batch_first=True, dropout=self._opts.dropout, bidirectional=True)
 
         self.fc_h = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
-        self.fc_c = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
+        #self.fc_c = nn.Linear(2 * self._opts.hidden_size, self._opts.hidden_size)
 
         pos_size = self._opts.max_pos_len * self._opts.emb_size
 
         self.fc_pos_1 = nn.Linear(pos_size, pos_size / 2)
         self.fc_pos_2 = nn.Linear(pos_size / 2, self._opts.emb_size)
+
+        self.dropout = nn.Dropout(p=self._opts.dropout)
+
+        for w in self.encoder.all_weights:
+            nn.init.orthogonal(w[0])
 
     def forward(self, input, pos, hidden):
         """
@@ -79,7 +84,10 @@ class Encoder(nn.Module):
         f2 = F.tanh(self.fc_pos_2(f1))
         pos_c_state = f2
 
-        output, state = self.encoder(input, hidden[0])
+        f3 = f2.unsqueeze(1).repeat(1, input.size()[1], 1)
+
+        encoder_input = self.dropout(torch.cat((input, f3), 2))
+        output, state = self.encoder(encoder_input, hidden[0])
 
         he = state
 
@@ -112,13 +120,18 @@ class AttenDecoder(nn.Module):
         self._atten_size = 2 * self._opts.hidden_size
 
         self.input_in = nn.Linear(self._opts.emb_size * 3 + self._opts.hidden_size, self._opts.emb_size)
+        #self.input_attn = nn.Linear(self._opts.emb_size, self._opts.hidden_size)
 
         self.line_in = nn.Linear(self._opts.hidden_size, self._opts.hidden_size * 2)
 
-        self.line_out = nn.Linear(self._atten_size + self._opts.hidden_size, (self._atten_size + self._opts.hidden_size) / 2)
-        self.line_out_2 = nn.Linear( (self._atten_size + self._opts.hidden_size) / 2, self._opts.vocab_len)
+        self.line_out = nn.Linear(self._atten_size + self._opts.hidden_size, self._opts.vocab_len)
+        #self.line_out_2 = nn.Linear( (self._atten_size + self._opts.hidden_size) / 2, self._opts.vocab_len)
 
         self.logsoftmax = nn.LogSoftmax()
+        self.dropout = nn.Dropout(p=self._opts.dropout)
+        
+        nn.init.orthogonal(self.decoder.weight_hh)
+        nn.init.orthogonal(self.decoder.weight_ih)
 
     def forward(self, encoder_state, encoder_output, target, input, pos_feature, char_embedding, pre_state=None):
         batch_size = target.size(0)
@@ -134,21 +147,22 @@ class AttenDecoder(nn.Module):
             decode_input = target[:, i]
             input_tensor = input[:, i] if input.size()[1] > i else Variable(torch.zeros(batch_size, self._opts.emb_size), requires_grad=False).cuda()
 
+            #input_features = self.input_in(torch.cat((decode_input, pos_feature, encoder_state, input_tensor), 1))
             input_features = F.tanh(self.input_in(torch.cat((decode_input, pos_feature, encoder_state, input_tensor), 1)))
+            input_features = input_features
 
             hs = self.decoder(input_features, hs)
 
-            targetT = self.line_in(hs).unsqueeze(2)
+            targetT = F.tanh(self.line_in(hs).unsqueeze(2))
 
             attn = torch.bmm(encoder_output, targetT).squeeze(2)
             softmax_score = F.softmax(F.tanh(attn)).unsqueeze(1)
 
             h_star = torch.bmm(softmax_score, encoder_output).squeeze(1)
 
-            feature = torch.cat((h_star, hs), 1)
-            f1 = F.tanh(self.line_out(feature))
+            feature = self.dropout(torch.cat((h_star, hs), 1))
 
-            output = self.logsoftmax((self.line_out_2(f1)))
+            output = self.logsoftmax((self.line_out(feature)))
             outputs.append(output)
 
         return hs, outputs

@@ -74,7 +74,7 @@ class Loader(object):
             l = line.split('\t')
             input_seq = [self._char_to_id[c if c in self._char_to_id else UNKNOWN_CHARACTER] for c in l[0]]
             label_seq = [self._char_to_id[START_DECODING]] + [self._char_to_id[c if c in self._char_to_id else UNKNOWN_CHARACTER] for c in l[1]] + [self._char_to_id[END_DECODING]]
-            pos = [self._pos_to_id[p if p in self._pos_to_id else UNKNOWN_CHARACTER] for p in l[2].split(';')[1:]]
+            pos = [self._pos_to_id[p if p in self._pos_to_id else UNKNOWN_CHARACTER] for p in l[2].split(';')]
             data.append(
                 {
                     'input' : input_seq,
