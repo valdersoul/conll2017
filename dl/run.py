@@ -138,8 +138,8 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
             torch.save(model, '../model/model%s.pkl'%(opts.train.split('/')[-1]))
             devLoss = ave_dev_loss
             best_step = step
-        if step - best_step > 15:
-            print 'Eearly stopping, no update after 30 epoches'
+        if step - best_step > 10:
+            print 'Eearly stopping, no update after 10 epoches'
             break
         model.train()
 
