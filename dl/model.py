@@ -133,8 +133,7 @@ class AttenDecoder(nn.Module):
         #self.line_out_2 = nn.Linear( (self._atten_size + self._opts.hidden_size) / 2, self._opts.vocab_len)
 
         self.logsoftmax = nn.LogSoftmax()
-        self.dropout = nn.Dropout(p=self._opts.dropout)
-        
+
         nn.init.orthogonal(self.decoder.weight_hh)
         nn.init.orthogonal(self.decoder.weight_ih)
 
@@ -165,7 +164,7 @@ class AttenDecoder(nn.Module):
 
             h_star = torch.bmm(softmax_score, encoder_output).squeeze(1)
 
-            feature = self.dropout(torch.cat((h_star, hs), 1))
+            feature = torch.cat((h_star, hs), 1)
 
             output = self.logsoftmax((self.line_out(feature)))
             outputs.append(output)
