@@ -35,7 +35,7 @@ class Module(nn.Module):
         batch_size = pos.size(0)
 
         input = self.dropout(self.char_emb(input))
-        pos = self.dropout(self.char_emb(pos))
+        pos = self.dropout(self.pos_emb(pos))
 
         hidden = self.encoder.init_hidden(batch_size)
         encoder_output, encoder_state, pos_feature = self.encoder(input, pos, hidden)
@@ -133,6 +133,7 @@ class AttenDecoder(nn.Module):
         #self.line_out_2 = nn.Linear( (self._atten_size + self._opts.hidden_size) / 2, self._opts.vocab_len)
 
         self.logsoftmax = nn.LogSoftmax()
+
 
         nn.init.orthogonal(self.decoder.weight_hh)
         nn.init.orthogonal(self.decoder.weight_ih)
