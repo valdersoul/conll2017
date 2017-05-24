@@ -6,6 +6,7 @@ import time
 import numpy as np
 import codecs
 import os
+import logging
 
 from collections import OrderedDict
 from tqdm import trange
@@ -77,6 +78,10 @@ optparser.add_option(
      "--clip", default="5",
     type='float', help="result file location"
 )
+optparser.add_option(
+     "-l", "--log", default="",
+    help="logging file location"
+)
 
 decode_batch = 2
 
@@ -93,13 +98,11 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
         print "Find GPU unable, using CPU to compute..."
 
     opt = optim.Adam(model.parameters(), weight_decay=0.0001)
-    epoch = 500
+    epoch = 100
     devLoss = 100
     best_step = 0
     # trainning
     for step in xrange(epoch):
-        if step % 50 == 0 and step != 0:
-            torch.save(model, "../model/model%d.pkl"%(step))
         total_loss = []
         t = trange(int(math.ceil(opts.data_size / opts.batch_size)), desc='ML')
         for iter in t:
@@ -138,7 +141,7 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
             torch.save(model, '../model/model%s.pkl'%(opts.train.split('/')[-1]))
             devLoss = ave_dev_loss
             best_step = step
-        if step - best_step > 10:
+        if step - best_step >= 10:
             print 'Eearly stopping, no update after 10 epoches'
             break
         model.train()
@@ -197,12 +200,15 @@ def decode(model, opts, test_batcher, i2c, i2p):
     """
     Decode the input
     """
+
+    logging.basicConfig(filename=opts.log, level=logging.INFO)
+
     if opts.use_cuda:
-        print "Find GPU enable, using GPU to compute..."
+        #print "Find GPU enable, using GPU to compute..."
         model.cuda()
         torch.cuda.manual_seed(opts.seed)
-    else:
-        print "Find GPU unable, using CPU to compute..."
+    # else:
+    #     print "Find GPU unable, using CPU to compute..."
 
     result_file = opts.result_file
     result_writer = codecs.open(result_file, 'w', 'utf-8')
@@ -240,6 +246,15 @@ def decode(model, opts, test_batcher, i2c, i2p):
 
     result_writer.close()
     os.system(('../evaluation/evalm.py --gold %s --guess %s --task 1')%(opts.test, opts.result_file))
+    log_result('temp.txt', opts)
+
+def log_result(file, opts):
+    with open(file) as f:
+        for line in f:
+            l = line.split('\t')
+            logging.info(opts.train.split('/')[-1].split('-')[0] + '\t' + l[-1])
+            break
+    return    
 
 def main(): 
     opts = optparser.parse_args()[0]
@@ -278,7 +293,7 @@ def main():
     else:
         model = torch.load(opts.model_path)
         model.eval()
-        print model
+        #print model
 
         c2i, i2c, p2i, i2p = train_loader.get_mappings()
 
@@ -286,7 +301,6 @@ def main():
         test_batcher = Batcher(1, test_loader.get_data(), opts.max_pos_len, opts.eval)
 
         opts.data_size = test_loader.get_data_size()
-        print i2c
         decode(model, opts, test_batcher, i2c, i2p)
 
 if __name__ == '__main__':
