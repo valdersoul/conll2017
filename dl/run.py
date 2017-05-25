@@ -75,13 +75,18 @@ optparser.add_option(
     help="result file location"
 )
 optparser.add_option(
-     "--clip", default="5",
+    "--clip", default="5",
     type='float', help="result file location"
 )
 optparser.add_option(
-     "-l", "--log", default="",
+    "-l", "--log", default="",
     help="logging file location"
 )
+optparser.add_option(
+    "--lr", default="1e-3",
+    type='float', help="logging file location"
+)
+
 
 decode_batch = 2
 
@@ -97,7 +102,7 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
     else:
         print "Find GPU unable, using CPU to compute..."
 
-    opt = optim.Adam(model.parameters(), weight_decay=0.0001)
+    opt = optim.Adam(model.parameters(), lr=opts.lr, weight_decay=0.0001)
     epoch = 100
     devLoss = 100
     best_step = 0
