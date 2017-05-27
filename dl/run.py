@@ -84,7 +84,11 @@ optparser.add_option(
 )
 optparser.add_option(
     "--lr", default="1e-3",
-    type='float', help="logging file location"
+    type='float', help="learning rate"
+)
+optparser.add_option(
+    "-w","--decay", default="0.0001",
+    type='float', help="weight decay"
 )
 
 
@@ -102,7 +106,7 @@ def start_train(model, criterion, opts, train_batcher, dev_batcher):
     else:
         print "Find GPU unable, using CPU to compute..."
 
-    opt = optim.Adam(model.parameters(), lr=opts.lr, weight_decay=0.0001)
+    opt = optim.Adam(model.parameters(), lr=opts.lr, weight_decay=opts.decay)
     epoch = 100
     devLoss = 100
     best_step = 0
@@ -284,13 +288,18 @@ def main():
         loss_weights = torch.ones(opts.vocab_len)
         loss_weights[0] = 0
         criterion = nn.NLLLoss(loss_weights, size_average=False)
+        
+        c2i, i2c, p2i, i2p = train_loader.get_mappings()
+        dev_loader = Loader(opts.dev, c2i, i2c, p2i, i2p)
+        if dev_loader._pos_max_len > opts.max_pos_len:
+            opts.max_pos_len = dev_loader._pos_max_len
+
         model = Module(opts)
         if opts.model_path is not '':
             model = torch.load(opts.model_path)
+
         train_batcher = Batcher(opts.batch_size, train_loader.get_data(), opts.max_pos_len, opts.eval)
 
-        c2i, i2c, p2i, i2p = train_loader.get_mappings()
-        dev_loader = Loader(opts.dev, c2i, i2c, p2i, i2p)
         dev_batcher = Batcher(decode_batch, dev_loader.get_data(), opts.max_pos_len, True)
 
         print model
@@ -303,6 +312,8 @@ def main():
         c2i, i2c, p2i, i2p = train_loader.get_mappings()
 
         test_loader = Loader(opts.test, c2i, i2c, p2i, i2p)
+        if test_loader._pos_max_len > opts.max_pos_len:
+            opts.max_pos_len = test_loader._pos_max_len
         test_batcher = Batcher(1, test_loader.get_data(), opts.max_pos_len, opts.eval)
 
         opts.data_size = test_loader.get_data_size()
